@@ -1,0 +1,105 @@
+---
+title: "Covid"
+author: "Bill Truelove"
+date: "2023-06-21"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+## Goal
+
+I decided to compare COVID case and death rates of my home county (Teton County, Wyoming) to the overall rates of the United States. 
+
+## Background
+
+Teton County, Wyoming is populated by about 23,000 people. It is a tourist destination that draws people from all over the world. At any given time, there are many, many more people in the county than the population shows. However, it is also one of the healthiest and wealthiest counties in the country. So, with these differences as compared to national averages, I wanted to see how our COVID case and death rates compared to national rates.
+
+## Import and Tidy The Data Set
+First we need to load libraries and tidy the data.
+```{r libraries, message=FALSE}
+library(tidyverse)
+library(lubridate)
+```
+
+
+```{r import}
+cases_US <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv", show_col_types = FALSE)
+deaths_US <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv", show_col_types = FALSE)
+
+```
+```{r tidy}
+cases_US <- cases_US %>%
+        pivot_longer(cols = -(UID:Combined_Key), names_to = "date", values_to = "cases") %>%
+        select(Admin2:cases) %>%
+        mutate(date = mdy(date)) %>%
+        select(-c(Lat, Long_))
+deaths_US <- deaths_US %>%
+  pivot_longer(cols = -(UID:Population), names_to = "date", values_to = "deaths") %>%
+  select(Admin2:deaths) %>%
+  mutate(date = mdy(date)) %>%
+  select(-c(Lat, Long_))
+US <- cases_US %>%
+  full_join(deaths_US)
+teton <- US %>%
+  filter(Combined_Key == "Teton, Wyoming, US") %>%
+  mutate(deaths_per_mill = deaths * 1000000/Population) %>%
+  mutate(cases_per_mill = cases * 1000000/Population)
+US_totals <- US %>%
+  group_by(Country_Region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths), 
+            Population = sum(Population)) %>%
+  mutate(cases_per_mill = cases*1000000/Population) %>%
+  mutate(deaths_per_mill = deaths*1000000/Population)
+
+```
+
+## Comparison Plots
+
+I decided to plot the cases per million and deaths per million of Teton County alongside that of the United States.
+
+```{r Us v. Teton}
+ggplot() +
+  geom_line(teton, mapping = aes(x = date, y = cases_per_mill, color="Teton"), linewidth = 1.5) +
+  geom_line(US_totals, mapping = aes(x = date, y = cases_per_mill, color = "USA"), linewidth = 1.5) +
+  labs(title = "Teton County and USA", subtitle = "Cases per million", color="Legend") +
+  xlab("Date") +
+  ylab("Cases per Million") 
+ggplot() +
+  geom_line(teton, mapping = aes(x = date, y = deaths_per_mill, color="Teton"), linewidth = 1.5) +
+  geom_line(US_totals, mapping = aes(x = date, y = deaths_per_mill, color = "USA"), linewidth = 1.5) +
+  labs(title = "Teton County and USA", subtitle = "Deaths per million", color="Legend") +
+  xlab("Date") +
+  ylab("Deaths per Million") 
+```
+
+## Model and Analysis
+
+We can see that Teton County has a much higher rate of cases than the United States overall, but a much lower rate of deaths. There are many characteristics that make Teton County unique and could help explain the discrepancy. However, before diving into all of those things, I want to compare Teton County to the other counties in the state of Wyoming. Maybe the entire region has the same discrepancy with the national numbers.
+
+```{r wyoming counties}
+wyoming_county_totals <- US %>%
+  filter(Province_State == "Wyoming") %>%
+  filter(date == "2023-03-09")
+ggplot(wyoming_county_totals, aes(x = cases, y=deaths)) +
+        geom_point() +
+        geom_smooth(method = 'lm') +
+        geom_text(aes(label = "Teton", x = 12134, y=8)) +
+        labs(title = "Wyoming County Linear Regression")+
+        xlab("Cases") +
+        ylab("Deaths")
+
+```
+
+So, it is clear from this model, that Teton County has significantly fewer deaths than would be expected given national trends as well as state trends. There are many possible reasons for this: a very healthy population, a young demographic, high vaccination compliance or an inflated number of cases based on the number of tourists. It could also be that patients who were very ill were sent to larger, regional hospitals in order to receive higher end care, many of whom died and were not counted in Teton County. 
+
+## Bias
+
+There are many data collection biases that could come into play in these numbers. Teton County had highly accessible testing stations, so a large percentage of cases were counted, while in many other places people could not get tested. Also, with a huge influx of tourists, the case numbers increase, but those same people maybe go to their home city if there is a chance they will die. I could also have a personal bias because Teton County is where I have lived for the last fifteen years, so maybe my analysis was meant to paint the county in a good light.
+
+## Conclusion
+
+Teton County seems to have overperformed its expected number of deaths based on the number of cases. It also had way more cases than would be expected based on the population. There are many possible reasons for this, as described above, however, a more full analysis is needed to create a full understanding of the what happened.
