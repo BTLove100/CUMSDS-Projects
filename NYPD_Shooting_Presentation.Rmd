@@ -1,0 +1,97 @@
+---
+title: "NYPD Shooting"
+author: "Bill Truelove"
+date: "2023-06-14"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyverse)
+library(readr)
+library(lubridate)
+library(fGarch)
+```
+
+### NYPD Time of Shooting Report
+
+Data URL : https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD
+
+I have decided to look at the distribution of times and places of shootings. In order to simplify the data, I have included only the time of shooting and whether it was flagged as a murder. I have extracted only the "hour" from the time of shooting.
+
+```{r hours, echo = TRUE}
+NYPD <- read_csv("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD", show_col_types = FALSE)
+NYPD_Shooting <- NYPD %>%
+  rename(Time = OCCUR_TIME)
+NYPD_Shooting <- NYPD_Shooting %>%
+  mutate(NYPD_Shooting, Hour = hour(Time)) %>%
+  select(Time, Hour, BORO)
+head(NYPD_Shooting)
+```
+## Plot
+```{r first plot, echo=TRUE}
+ggplot(NYPD_Shooting, aes(x = Hour))+
+  geom_histogram(bins = 24, aes(y = after_stat(density)), color = 1, fill = "white") +
+  geom_density(color = 'red') +
+  labs(title = "NYC Shootings by Hour with Density Line") +
+  xlab('Hour') +
+  ylab('Density')
+
+```
+This histogram and density line does not resemble a distribution that I recognize. However, if we adjust the hours so that the histogram is centered on the highest density value, we can see a slightly skewed normal distribution that we can use to model our data.
+
+
+
+## Model
+
+In order to fit this skewed normal line, I used "dsnorm" function from the "fGarch" library with a mean, standard deviation and xi parameters outputted from the "snormFit" function from the same library. We can see that this skewed normal distribution fits the data fairly well and seems to accurately model the hours of shootings in New York City.
+
+```{r Model}
+NYPD_Shooting <- NYPD_Shooting %>%
+  mutate(adj_hour = case_when(Hour < 10 ~ Hour + 24, Hour > 9 ~ Hour))
+snormFit(NYPD_Shooting$adj_hour)
+ggplot(NYPD_Shooting, aes(x=adj_hour))+
+      geom_histogram(bins = 24, aes(y = after_stat(density)), colour =1, fill = "white") +
+      ggtitle("NYPD Shooting by Hour") +
+      ylab("Density") + xlab("Hour(after 10 am)") +
+      geom_function(fun = dsnorm, args = list(mean = 21.826905, sd = 4.935273, xi = .767257), aes(color = "Model"), linewidth=1.2) +
+      geom_density(aes(color = "Density"), linewidth = 1.2) +
+      labs(colour = "Legend")
+```
+
+The model looks pretty good from here, however I conducted a chi-squared goodness of fit test and unfortunately produced a test statistic of 761, lower than a normal distribution, but it probably is not the distribution that would best model our data. It will require a buit more research to find the best distiburion, if there is one.
+
+So now lets look at if some boroughs are safer than others at certain hours.
+
+```{r by boro, echo=TRUE}
+
+ggplot(NYPD_Shooting, aes(x=adj_hour, fill = BORO))+
+      geom_histogram(bins = 24, aes(y = after_stat(density)), colour =1) +
+      ggtitle("NYPD Shooting by Hour and Borough") +
+      ylab("Density") + xlab("Hour(after 10 am)") 
+ggplot(NYPD_Shooting, aes(x=adj_hour))+
+      geom_histogram(bins = 24, aes(y = after_stat(density)), colour =1, fill = "white") +
+      ggtitle("NYPD Shooting by Hour and Borough") +
+      ylab("Density") + xlab("Hour(after 10 am)") +
+      facet_wrap(~BORO)
+ggplot(NYPD_Shooting, aes(x=BORO, fill = BORO)) +
+      geom_bar(show.legend = FALSE) +
+      labs(title = "Shootings per Borough") +
+      xlab("Borough") + ylab("Shootings")
+```
+
+We can see that Brooklyn and the Bronx have the highest number of reported shootings.
+
+I ran t-tests on the different buroughs against the overall data and it does seem like they are distributed differently. However, the differences are all matters of 30 or so minutes, so for simplification we will continue to make our decisions based on the overall city-wide data.
+
+## Bias
+
+The way in which this data was reported could definitely be biased. For example, in the early morning hours, there are fewer people awake, which means fewer shootings, but could also mean a smaller portion of those shootings are heard and therefor go unreported. Or maybe there is a shift change at a certain hour in the NYPD which causes fewer officers to be on patrol so fewer shootings are heard. Without knowing more about these factors, it is difficult to draw conclusions as to the bias of the data.
+
+## Conclusion
+
+The data is very clear that the most shootings occur at night from around 9 pm until 1 am. The number decreases quickly from there until the fewest shootings are happening at 7 am until 10 am at which point there is a steady increase throughtout the day light hours.
